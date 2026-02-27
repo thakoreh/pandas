@@ -340,7 +340,17 @@ def test_array_string_nd(data):
             ._from_sequence(data, dtype=pd.StringDtype(na_value=np.nan))
         )
     else:
-        expected = NumpyExtensionArray(np.array(data, dtype=str))
+        # GH#57702: Use object dtype to preserve None values, matching Series behavior
+        from pandas._libs import lib
+        arr = np.asarray(data)
+        if arr.ndim > 1:
+            shape = arr.shape
+            arr_flat = arr.ravel()
+            expected_arr = lib.ensure_string_array(arr_flat, convert_na_value=False, copy=False)
+            expected_arr = expected_arr.reshape(shape)
+        else:
+            expected_arr = lib.ensure_string_array(data, convert_na_value=False, copy=False)
+        expected = NumpyExtensionArray(expected_arr)
 
     tm.assert_equal(result, expected)
 
@@ -609,3 +619,23 @@ def test_pd_array_structured_masked_array_raises():
     msg = "Cannot construct an array from an ndarray with compound dtype"
     with pytest.raises(ValueError, match=msg):
         pd.array(ma_arr)
+
+
+def test_pd_array_string_dtype_preserves_none():
+    # GH#57702 - pd.array with dtype=str should preserve None values
+    # consistent with pd.Series(dtype=str)
+    result = pd.array([1, None], dtype=str)
+    # None should be preserved, not converted to "None" string
+    assert result[0] == "1"
+    assert result[1] is None
+
+    # Also test with explicit None values
+    result2 = pd.array(["a", None, "b"], dtype=str)
+    assert result2[0] == "a"
+    assert result2[1] is None
+    assert result2[2] == "b"
+
+    # Test that behavior matches pd.Series
+    series_result = pd.Series([1, None], dtype=str).array
+    assert result[0] == series_result[0]
+    assert result[1] is series_result[1]  # Both should be None

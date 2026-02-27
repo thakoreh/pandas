@@ -137,6 +137,30 @@ class NumpyExtensionArray(
         if isinstance(dtype, NumpyEADtype):
             dtype = dtype._dtype
 
+        # GH#57702: Handle str dtype specially to preserve None values
+        # instead of converting to "None" string
+        if dtype is not None:
+            try:
+                np_dtype = np.dtype(dtype) if not isinstance(dtype, np.dtype) else dtype
+                if np_dtype.kind == "U":
+                    # Use ensure_string_array to preserve NA values
+                    # Handle multi-dimensional arrays by raveling and reshaping
+                    if hasattr(scalars, "shape") and getattr(scalars, "ndim", 0) > 1:
+                        shape = scalars.shape
+                        scalars_flat = scalars.ravel()
+                        result = lib.ensure_string_array(
+                            scalars_flat, convert_na_value=False, copy=copy
+                        )
+                        result = result.reshape(shape)
+                    else:
+                        result = lib.ensure_string_array(
+                            scalars, convert_na_value=False, copy=copy
+                        )
+                    return cls(result)
+            except (TypeError, ValueError):
+                # dtype might not be a valid numpy dtype, continue with normal path
+                pass
+
         # error: Argument "dtype" to "asarray" has incompatible type
         # "Union[ExtensionDtype, str, dtype[Any], dtype[floating[_64Bit]], Type[object],
         # None]"; expected "Union[dtype[Any], None, type, _SupportsDType, str,
